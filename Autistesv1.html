@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Jeu vocal – Bouger le personnage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body{
+      margin:0;
+      font-family: Arial, sans-serif;
+      background:#0b1220;
+      color:#e9f0ff;
+    }
+    header{
+      padding:14px;
+      border-bottom:1px solid rgba(255,255,255,.15);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+    }
+    .status{
+      font-size:13px;
+      padding:6px 10px;
+      border-radius:20px;
+      background:#151d2f;
+    }
+    main{ padding:14px; }
+
+    button{
+      border:none;
+      padding:10px 14px;
+      border-radius:12px;
+      font-weight:bold;
+      margin-right:8px;
+      cursor:pointer;
+    }
+    #btnStart{ background:#2b7cff; color:#071225; }
+    #btnStop, #btnReset{
+      background:#151d2f; color:#e9f0ff;
+      border:1px solid rgba(255,255,255,.15);
+    }
+    button:disabled{ opacity:.5; }
+
+    .info{
+      margin-top:10px;
+      font-size:14px;
+      opacity:.9;
+    }
+
+    #stage{
+      margin-top:20px;
+      height:55vh;
+      min-height:320px;
+      border-radius:20px;
+      position:relative;
+      overflow:hidden;
+      background:
+        linear-gradient(180deg,#12203b,#071225);
+      border:1px solid rgba(255,255,255,.15);
+    }
+
+    #player{
+      width:56px; height:56px;
+      background:#ffe066;
+      border-radius:18px;
+      position:absolute;
+      left:50%; top:50%;
+      transform:translate(-50%,-50%);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:26px;
+    }
+
+    #goal{
+      width:48px; height:48px;
+      background:#32d74b;
+      border-radius:50%;
+      position:absolute;
+      right:20px; top:20px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:bold;
+      color:#003b12;
+    }
+
+    footer{
+      margin-top:12px;
+      display:flex;
+      justify-content:space-between;
+      font-size:13px;
+      opacity:.9;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <strong>Jeu vocal : bouger le perso</strong>
+  <div class="status" id="status">Prêt</div>
+</header>
+
+<main>
+  <div>
+    <button id="btnStart">🎤 Démarrer micro</button>
+    <button id="btnStop" disabled>Stop micro</button>
+    <button id="btnReset">Reset</button>
+  </div>
+
+  <div class="info">
+    Dis : <b>go</b>, <b>left</b>, <b>right</b>, <b>up</b>, <b>down</b>, <b>stop</b><br>
+    Objectif : toucher le rond vert 🟢
+  </div>
+
+  <div id="stage">
+    <div id="goal">GO</div>
+    <div id="player">🙂</div>
+  </div>
+
+  <footer>
+    <div>Dernier mot : <b id="last">—</b></div>
+    <div>Score : <b id="score">0</b></div>
+  </footer>
+</main>
+
+<script>
+  const statusEl = document.getElementById("status");
+  const lastEl = document.getElementById("last");
+  const scoreEl = document.getElementById("score");
+  const player = document.getElementById("player");
+  const goal = document.getElementById("goal");
+  const stage = document.getElementById("stage");
+
+  const btnStart = document.getElementById("btnStart");
+  const btnStop = document.getElementById("btnStop");
+  const btnReset = document.getElementById("btnReset");
+
+  let px=0, py=0, score=0;
+  const STEP = 30;
+
+  function setStatus(t){ statusEl.textContent=t; }
+
+  function placePlayer(){
+    player.style.left = px+"px";
+    player.style.top  = py+"px";
+  }
+
+  function centerPlayer(){
+    const r = stage.getBoundingClientRect();
+    px = r.width/2 - 28;
+    py = r.height/2 - 28;
+    placePlayer();
+  }
+
+  function randomGoal(){
+    const r = stage.getBoundingClientRect();
+    goal.style.left = Math.random()*(r.width-60)+10+"px";
+    goal.style.top  = Math.random()*(r.height-60)+10+"px";
+  }
+
+  function collide(){
+    const p = player.getBoundingClientRect();
+    const g = goal.getBoundingClientRect();
+    if(!(p.right<g.left || p.left>g.right || p.bottom<g.top || p.top>g.bottom)){
+      score++;
+      scoreEl.textContent=score;
+      setStatus("Bravo !");
+      randomGoal();
+    }
+  }
+
+  function move(cmd){
+    if(cmd==="left") px-=STEP;
+    if(cmd==="right") px+=STEP;
+    if(cmd==="up") py-=STEP;
+    if(cmd==="down") py+=STEP;
+    if(cmd==="stop"){ setStatus("Stop"); return; }
+
+    placePlayer();
+    collide();
+  }
+
+  function normalize(t){
+    return t.toLowerCase();
+  }
+
+  function getCmd(t){
+    t = normalize(t);
+    if(t.includes("left")) return "left";
+    if(t.includes("right")) return "right";
+    if(t.includes("up")) return "up";
+    if(t.includes("down")) return "down";
+    if(t.includes("go")) return "right";
+    if(t.includes("stop")) return "stop";
+    return null;
+  }
+
+  let recognition;
+
+  async function startRec(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){
+      setStatus("Speech API non dispo");
+      return;
+    }
+    await navigator.mediaDevices.getUserMedia({audio:true});
+
+    recognition = new SR();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+
+    recognition.onstart = ()=>{
+      btnStart.disabled=true;
+      btnStop.disabled=false;
+      setStatus("Micro ON");
+    };
+    recognition.onend = ()=>{
+      btnStart.disabled=false;
+      btnStop.disabled=true;
+      setStatus("Micro OFF");
+    };
+    recognition.onresult = (e)=>{
+      const txt = e.results[e.results.length-1][0].transcript;
+      lastEl.textContent = txt;
+      const cmd = getCmd(txt);
+      if(cmd) move(cmd);
+    };
+
+    recognition.start();
+  }
+
+  btnStart.onclick = startRec;
+  btnStop.onclick = ()=> recognition && recognition.stop();
+  btnReset.onclick = ()=>{
+    score=0; scoreEl.textContent=0;
+    centerPlayer();
+    randomGoal();
+    setStatus("Reset");
+  };
+
+  window.onload = ()=>{
+    centerPlayer();
+    randomGoal();
+  };
+</script>
+
+</body>
+</html>
