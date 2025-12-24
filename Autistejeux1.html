@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Jeu vocal - Déplacer le perso</title>
+  <style>
+    body{
+      margin:0; font-family: Arial, sans-serif; background:#0b1220; color:#e9f0ff;
+      display:flex; flex-direction:column; min-height:100vh;
+    }
+    header{
+      padding:14px 14px 10px;
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      border-bottom:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+    }
+    .title{font-weight:700; font-size:16px;}
+    .status{
+      font-size:12px; opacity:.9; padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(0,0,0,.2);
+      max-width:55vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    main{flex:1; display:flex; flex-direction:column; gap:12px; padding:14px;}
+    .panel{
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      padding:12px;
+    }
+    .controls{
+      display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+    }
+    button{
+      appearance:none; border:0;
+      padding:10px 12px; border-radius:12px; font-weight:700;
+      background:#2b7cff; color:#071225; cursor:pointer;
+    }
+    button.secondary{ background:#151d2f; color:#e9f0ff; border:1px solid rgba(255,255,255,.12); }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    .hint{ font-size:13px; opacity:.9; line-height:1.35; }
+    .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .chip{
+      font-size:12px; padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(255,255,255,.16);
+      background: rgba(0,0,0,.18);
+    }
+
+    /* Zone de jeu */
+    #stage{
+      position:relative;
+      width:100%;
+      height:52vh;
+      min-height:300px;
+      border-radius:18px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.14);
+      background:
+        radial-gradient(1200px 600px at 20% 20%, rgba(43,124,255,.22), transparent 60%),
+        radial-gradient(900px 500px at 80% 70%, rgba(255,200,0,.16), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,.03), rgba(0,0,0,.25));
+    }
+    #grid{
+      position:absolute; inset:0;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,.07) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,.07) 1px, transparent 1px);
+      background-size: 36px 36px;
+      opacity:.18;
+      pointer-events:none;
+    }
+    #player{
+      position:absolute;
+      width:52px; height:52px;
+      left: calc(50% - 26px);
+      top: calc(50% - 26px);
+      border-radius:16px;
+      background: linear-gradient(135deg, #ffe066, #ff9f1c);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      display:flex; align-items:center; justify-content:center;
+      color:#1a1400; font-weight:900;
+      user-select:none;
+      transition: transform .08s linear;
+    }
+    #player.speaking{ transform: scale(1.06) rotate(2deg); }
+    #goal{
+      position:absolute;
+      width:46px; height:46px;
+      border-radius:999px;
+      left: 14px; top: 14px;
+      background: radial-gradient(circle at 30% 30%, #7CFF00, #1b7a3a);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      display:flex; align-items:center; justify-content:center;
+      font-weight:900;
+    }
+
+    .footerRow{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
+    }
+    .small{ font-size:12px; opacity:.85; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="title">Jeu vocal : bouger le perso</div>
+    <div class="status" id="status">Prêt.</div>
+  </header>
+
+  <main>
+    <div class="panel">
+      <div class="controls">
+        <button id="btnStart">🎤 Démarrer micro</button>
+        <button id="btnStop" class="secondary" disabled>Stop micro</button>
+        <button id="btnReset" class="secondary">Reset</button>
+      </div>
+
+      <div class="hint" style="margin-top:10px;">
+        Dis un mot (simple) pour bouger :
+        <b>gauche</b>, <b>droite</b>, <b>haut</b>, <b>bas</b>, <b>stop</b>, <b>encore</b>.
+        <br/>
+        Astuce : tu peux aussi dire <b>go</b>, <b>left</b>, <b>right</b>, <b>up</b>, <b>down</b>.
+      </div>
+
+      <div class="chips">
+        <span class="chip">Objectif : toucher la cible 🟢</span>
+        <span class="chip">Temps écran : 10–15 min max</span>
+        <span class="chip">Adultes à côté = meilleur résultat</span>
+      </div>
+    </div>
+
+    <div id="stage">
+      <div id="grid"></div>
+      <div id="goal">GO</div>
+      <div id="player">🙂</div>
+    </div>
+
+    <div class="panel">
+      <div class="footerRow">
+        <div class="small">Dernier mot reconnu : <b id="lastWord">—</b></div>
+        <div class="small">Score : <b id="score">0</b></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // ====== Config ======
+    const STEP = 26; // distance par "pas"
+    const PLAYER_SIZE = 52;
+    const GOAL_SIZE = 46;
+
+    // ====== Elements ======
+    const statusEl = document.getElementById('status');
+    const lastWordEl = document.getElementById('lastWord');
+    const scoreEl = document.getElementById('score');
+
+    const stage = document.getElementById('stage');
+    const player = document.getElementById('player');
+    const goal = document.getElementById('goal');
+
+    const btnStart = document.getElementById('btnStart');
+    const btnStop  = document.getElementById('btnStop');
+    const btnReset = document.getElementById('btnReset');
+
+    // ====== State ======
+    let recognition = null;
+    let listening = false;
+    let score = 0;
+
+    // Player position
+    let px = 0, py = 0;
+
+    // Goal position
+    let gx = 14, gy = 14;
+
+    // ====== Helpers ======
+    function setStatus(msg){
+      statusEl.textContent = msg;
+    }
+    function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+    function stageRect(){
+      return stage.getBoundingClientRect();
+    }
+
+    function placePlayer(x, y){
+      const rect = stageRect();
+      const maxX = rect.width  - PLAYER_SIZE;
+      const maxY = rect.height - PLAYER_SIZE;
+
+      px = clamp(x, 0, maxX);
+      py = clamp(y, 0, maxY);
+
+      player.style.left = px + "px";
+      player.style.top  = py + "px";
+    }
+
+    function randomGoal(){
+      const rect = stageRect();
+      const maxX = rect.width  - GOAL_SIZE;
+      const maxY = rect.height - GOAL_SIZE;
+
+      // éviter trop proche du bord
+      gx = Math.floor(Math.random() * (maxX - 30)) + 15;
+      gy = Math.floor(Math.random() * (maxY - 30)) + 15;
+
+      goal.style.left = gx + "px";
+      goal.style.top  = gy + "px";
+    }
+
+    function hitTest(){
+      // collision simple rectangles
+      const p = {x:px, y:py, w:PLAYER_SIZE, h:PLAYER_SIZE};
+      const g = {x:gx, y:gy, w:GOAL_SIZE,   h:GOAL_SIZE};
+
+      const overlap = !(p.x + p.w < g.x || g.x + g.w < p.x || p.y + p.h < g.y || g.y + g.h < p.y);
+      if(overlap){
+        score++;
+        scoreEl.textContent = score;
+        setStatus("Bien joué ! Cible touchée.");
+        randomGoal();
+      }
+    }
+
+    function bump(){
+      player.classList.add('speaking');
+      setTimeout(()=>player.classList.remove('speaking'), 120);
+    }
+
+    function normalizeText(t){
+      return (t || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[’']/g, "'")
+        .replace(/[.,!?؛،]/g, " ")
+        .replace(/\s+/g, " ");
+    }
+
+    function extractCommand(transcript){
+      const t = normalizeText(transcript);
+
+      // commandes possibles FR + EN
+      const map = [
+        {keys:["gauche","left"], cmd:"left"},
+        {keys:["droite","right"], cmd:"right"},
+        {keys:["haut","up"], cmd:"up"},
+        {keys:["bas","down"], cmd:"down"},
+        {keys:["stop","arrête","arrete"], cmd:"stop"},
+        {keys:["encore","more","go","avance"], cmd:"more"}
+      ];
+
+      // si phrase, on cherche un mot-clé dedans
+      for(const item of map){
+        for(const k of item.keys){
+          if(t.includes(k)) return item.cmd;
+        }
+      }
+      return null;
+    }
+
+    function doMove(cmd){
+      if(!cmd) return;
+
+      bump();
+      let nx = px, ny = py;
+
+      if(cmd === "left")  nx -= STEP;
+      if(cmd === "right") nx += STEP;
+      if(cmd === "up")    ny -= STEP;
+      if(cmd === "down")  ny += STEP;
+
+      if(cmd === "stop"){
+        setStatus("Stop.");
+        return;
+      }
+
+      if(cmd === "more"){
+        // "encore" = petit bonus : avance vers la cible
+        const dx = (gx + GOAL_SIZE/2) - (px + PLAYER_SIZE/2);
+        const dy = (gy + GOAL_SIZE/2) - (py + PLAYER_SIZE/2);
+        if(Math.abs(dx) > Math.abs(dy)){
+          nx += dx > 0 ? STEP : -STEP;
+        }else{
+          ny += dy > 0 ? STEP : -STEP;
+        }
+        setStatus("Encore.");
+      } else {
+        setStatus("Commande: " + cmd);
+      }
+
+      placePlayer(nx, ny);
+      hitTest();
+    }
+
+    // ====== Speech Recognition ======
+    function setupRecognition(){
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if(!SR){
+        setStatus("Reconnaissance vocale non supportée ici. Essaie Chrome Android.");
+        btnStart.disabled = true;
+        return null;
+      }
+
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+
+      // Langue: tu peux switcher en "en-US" si tu veux 100% anglais
+      rec.lang = "fr-FR";
+
+      rec.onstart = () => {
+        listening = true;
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+        setStatus("Micro ON. Dis: gauche/droite/haut/bas/stop/encore.");
+      };
+
+      rec.onend = () => {
+        listening = false;
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        setStatus("Micro OFF.");
+      };
+
+      rec.onerror = (e) => {
+        setStatus("Erreur micro: " + (e.error || "inconnue"));
+      };
+
+      rec.onresult = (event) => {
+        // On prend le dernier résultat
+        const i = event.results.length - 1;
+        const result = event.results[i];
+
+        // On regarde le meilleur transcript
+        const transcript = result[0]?.transcript || "";
+        const cmd = extractCommand(transcript);
+
+        // Affichage debug
+        if(transcript.trim()){
+          lastWordEl.textContent = normalizeText(transcript).slice(0, 40);
+        }
+
+        // On n'exécute que si résultat final OU mot-clé clair
+        // (évite bouger à cause de bruit)
+        if(cmd && (result.isFinal || transcript.length <= 12)){
+          doMove(cmd);
+        }
+      };
+
+      return rec;
+    }
+
+    // ====== Init ======
+    function resetGame(){
+      score = 0;
+      scoreEl.textContent = score;
+      lastWordEl.textContent = "—";
+      setStatus("Prêt.");
+      // centre player
+      const rect = stageRect();
+      placePlayer((rect.width - PLAYER_SIZE)/2, (rect.height - PLAYER_SIZE)/2);
+      randomGoal();
+    }
+
+    window.addEventListener('resize', () => {
+      // garder dans les limites
+      placePlayer(px, py);
+      goal.style.left = gx + "px";
+      goal.style.top  = gy + "px";
+    });
+
+    btnStart.addEventListener('click', async () => {
+      if(!recognition) recognition = setupRecognition();
+      if(!recognition) return;
+
+      // Sur certains navigateurs, ça aide à déclencher la permission
+      try{
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      }catch(err){
+        setStatus("Permission micro refusée. Active le micro dans les réglages.");
+        return;
+      }
+
+      try{
+        recognition.start();
+      }catch(e){
+        // start() peut throw si déjà démarré
+      }
+    });
+
+    btnStop.addEventListener('click', () => {
+      if(recognition && listening){
+        recognition.stop();
+      }
+    });
+
+    btnReset.addEventListener('click', () => {
+      resetGame();
+    });
+
+    // Lancer
+    resetGame();
+  </script>
+</body>
+</html>
